@@ -8,10 +8,11 @@ A Model Context Protocol (MCP) server that provides Claude with access to Pinata
 
 - Node.js 18+ installed
 - A Pinata account with an API key (JWT)
+- A Pinata Gateway URL
 
 ### Installation
 
-Installation will depend on whether you are using Claude Code or Claude Desktop
+Installation will depend on whether you are using Claude Code or Claude Desktop.
 
 **Claude Code**
 
@@ -21,23 +22,20 @@ Run `claude mcp add` and follow the prompts with the following information:
 Server Name: pinata
 Server Scope: Project or Global
 Server Command: npx
-Command Arguments: pinata-mcp /path/to/allowed/directories /another/path/to/allowed/directories
+Command Arguments: pinata-mcp
 Environment Variables: PINATA_JWT=<YOUR_JWT>,GATEWAY_URL=example.mypinata.cloud
 ```
 
 **Claude Desktop**
 
-Add the following config to `claude_desktop_config.json`
+Add the following config to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "pinata": {
       "command": "npx",
-      "args": [
-        "pinata-mcp",
-        "/path/to/allowed/directory"
-      ],
+      "args": ["pinata-mcp"],
       "env": {
         "PINATA_JWT": "<YOUR_JWT>",
         "GATEWAY_URL": "example.mypinata.cloud"
@@ -47,39 +45,75 @@ Add the following config to `claude_desktop_config.json`
 }
 ```
 
-## Usage
+## Available Tools
 
-To start using the MCP start up Claude Code with the command `claude` or start Claude Desktop. Below are the available operations:
+### Authentication
+
+| Tool | Description |
+|------|-------------|
+| `testAuthentication` | Verify that your Pinata JWT is valid and working |
 
 ### File Operations
 
-- **Upload files** to Pinata (public or private IPFS)
-- **Search files** by name, CID, or mime type
-- **Get file details** by ID
-- **Update file metadata** including name and key-values
-- **Delete files** from Pinata
-
-### Group Operations
-
-- **List groups** with optional filtering
-- **Create groups** for organizing files
-- **Get group details** by ID
-- **Update group information**
-- **Delete groups**
-- **Add/remove files** to/from groups
+| Tool | Description |
+|------|-------------|
+| `uploadFile` | Upload a file to Pinata (public or private IPFS) |
+| `searchFiles` | Search files by name, CID, or MIME type |
+| `getFileById` | Get detailed file information by ID |
+| `updateFile` | Update file metadata (name, key-values) |
+| `deleteFile` | Delete a file from Pinata |
 
 ### Content Access
 
-- **Create private download links** for accessing private files
-- **Fetch content from IPFS gateway** and optionally save locally
+| Tool | Description |
+|------|-------------|
+| `createLink` | Create a gateway link for public or private files |
+| `createPrivateDownloadLink` | Generate a temporary download link for private files |
+| `fetchFromGateway` | Fetch content from IPFS via Pinata gateway |
+
+### Group Operations
+
+| Tool | Description |
+|------|-------------|
+| `listGroups` | List groups with optional filtering |
+| `createGroup` | Create a new group for organizing files |
+| `getGroup` | Get group details by ID |
+| `updateGroup` | Update group information |
+| `deleteGroup` | Delete a group |
+| `addFileToGroup` | Add a file to a group |
+| `removeFileFromGroup` | Remove a file from a group |
+
+### x402 Payment Instructions
+
+Tools for content monetization using the x402 protocol:
+
+| Tool | Description |
+|------|-------------|
+| `createPaymentInstruction` | Create payment requirements for gated content |
+| `listPaymentInstructions` | List/filter existing payment instructions |
+| `getPaymentInstruction` | Get details of a specific payment instruction |
+| `updatePaymentInstruction` | Modify payment instruction settings |
+| `deletePaymentInstruction` | Remove a payment instruction |
+
+### CID Signatures
+
+Tools for cryptographic content verification using EIP-712 signatures:
+
+| Tool | Description |
+|------|-------------|
+| `signCid` | Create a cryptographic signature for a CID |
+| `listSignatures` | List signatures for files |
+| `getSignature` | Get signature details by CID |
+| `deleteSignature` | Remove a signature |
 
 ## Example Prompts for Claude
 
-Here are some examples of how to instruct Claude to use pinata-mcp:
-
 ```
+Test my Pinata connection:
+"Test my Pinata authentication to make sure everything is working"
+
 Upload an image to Pinata:
-"Please upload the file at ~/Pictures/example.jpg to my Pinata account as a private file named 'My Example Image'"
+"Upload this image to my Pinata account as a private file named 'My Example Image'"
 
 Search for files:
 "Search my Pinata account for all PNG files"
@@ -87,9 +121,28 @@ Search for files:
 Create a group and add files:
 "Create a new group called 'Project Assets' on Pinata, then find all my JSON files and add them to this group"
 
-Download content from IPFS:
-"Fetch the content with CID QmX... from IPFS and save it to my Downloads folder"
+Fetch content from IPFS:
+"Fetch the content with CID QmX... from IPFS"
+
+Create a payment instruction for content monetization:
+"Create a payment instruction called 'Premium Content' that requires 0.01 USDC on Base to access"
+
+Sign content for verification:
+"Sign the CID bafkreih5aznjvttude6c3wbvqeebb6rlx5wkbzyppv7garjiubll2ceym4 to verify its authenticity"
 ```
+
+## Rate Limits
+
+Pinata API rate limits vary by plan:
+
+| Plan | Rate Limit |
+|------|------------|
+| Free | 60 requests per minute |
+| Picnic | 250 requests per minute |
+| Fiesta | 500 requests per minute |
+| Enterprise | 100 requests per second |
+
+Some endpoints (under `data/` and pinning service listing) have stricter limits of ~30 requests per minute.
 
 ## Questions
 

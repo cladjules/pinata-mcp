@@ -1,7 +1,7 @@
 {
   "name": "pinata-mcp",
   "module": "index.ts",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,19 +9,20 @@
     "pinata-mcp": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc && chmod 755 dist/index.js"
+    "build": "tsc && chmod 755 dist/index.js",
+    "prepublishOnly": "npm run build"
   },
   "files": [
-    "build"
+    "dist"
   ],
   "devDependencies": {
-    "@types/node": "^22.13.10"
+    "@types/node": "^25.0.9"
   },
   "peerDependencies": {
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.6.1",
-    "form-data": "^4.0.2"
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "zod": "^3.24.2"
   }
 }
