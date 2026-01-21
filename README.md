@@ -22,7 +22,7 @@ Run `claude mcp add` and follow the prompts with the following information:
 Server Name: pinata
 Server Scope: Project or Global
 Server Command: npx
-Command Arguments: pinata-mcp
+Command Arguments: pinata-mcp /path/to/allowed/directory
 Environment Variables: PINATA_JWT=<YOUR_JWT>,GATEWAY_URL=example.mypinata.cloud
 ```
 
@@ -35,7 +35,11 @@ Add the following config to `claude_desktop_config.json`:
   "mcpServers": {
     "pinata": {
       "command": "npx",
-      "args": ["pinata-mcp"],
+      "args": [
+        "pinata-mcp",
+        "/path/to/allowed/directory",
+        "/another/allowed/directory"
+      ],
       "env": {
         "PINATA_JWT": "<YOUR_JWT>",
         "GATEWAY_URL": "example.mypinata.cloud"
@@ -44,6 +48,8 @@ Add the following config to `claude_desktop_config.json`:
   }
 }
 ```
+
+> **Note:** The directory arguments are optional. If not provided, the server will only allow access to the current working directory. You can specify multiple directories to allow file access from multiple locations.
 
 ## Available Tools
 
@@ -129,6 +135,12 @@ Tools for cryptographic content verification using EIP-712 signatures:
 | `vectorizeFile` | Vectorize a file for semantic search |
 | `deleteFileVectors` | Delete vectors for a file |
 | `queryVectors` | Query vectorized files using semantic search |
+
+### Utilities
+
+| Tool | Description |
+|------|-------------|
+| `listAllowedDirectories` | List directories the server can access for file operations |
 
 ## Example Prompts for Claude
 

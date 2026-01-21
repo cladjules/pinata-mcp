@@ -2,6 +2,94 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+import {
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+// Command line argument parsing for allowed directories
+const args = process.argv.slice(2);
+const allowedDirectories: string[] = [];
+
+// Parse allowed directories from args (if provided)
+if (args.length > 0) {
+  for (const dir of args) {
+    const expanded = expandHome(dir);
+    const normalized = normalizePath(path.resolve(expanded));
+    allowedDirectories.push(normalized);
+  }
+}
+
+// Path helper functions
+function normalizePath(p: string): string {
+  return path.normalize(p);
+}
+
+function expandHome(filepath: string): string {
+  if (filepath.startsWith("~/") || filepath === "~") {
+    return path.join(os.homedir(), filepath.slice(1));
+  }
+  return filepath;
+}
+
+// Security: validate path is within allowed directories
+async function validatePath(requestedPath: string): Promise<string> {
+  // If no directories specified, allow current working directory
+  const dirsToCheck =
+    allowedDirectories.length > 0
+      ? allowedDirectories
+      : [normalizePath(process.cwd())];
+
+  const expandedPath = expandHome(requestedPath);
+  const absolute = path.isAbsolute(expandedPath)
+    ? path.resolve(expandedPath)
+    : path.resolve(process.cwd(), expandedPath);
+
+  const normalizedRequested = normalizePath(absolute);
+
+  const isAllowed = dirsToCheck.some((dir) =>
+    normalizedRequested.startsWith(dir)
+  );
+  if (!isAllowed) {
+    throw new Error(
+      `Access denied - path outside allowed directories: ${absolute}`
+    );
+  }
+
+  try {
+    const realPath = await fs.realpath(absolute);
+    const normalizedReal = normalizePath(realPath);
+    const isRealPathAllowed = dirsToCheck.some((dir) =>
+      normalizedReal.startsWith(dir)
+    );
+    if (!isRealPathAllowed) {
+      throw new Error(
+        "Access denied - symlink target outside allowed directories"
+      );
+    }
+    return realPath;
+  } catch (error) {
+    const parentDir = path.dirname(absolute);
+    try {
+      const realParentPath = await fs.realpath(parentDir);
+      const normalizedParent = normalizePath(realParentPath);
+      const isParentAllowed = dirsToCheck.some((dir) =>
+        normalizedParent.startsWith(dir)
+      );
+      if (!isParentAllowed) {
+        throw new Error(
+          "Access denied - parent directory outside allowed directories"
+        );
+      }
+      return absolute;
+    } catch {
+      throw new Error(`Parent directory does not exist: ${parentDir}`);
+    }
+  }
+}
 
 const server = new McpServer({
   name: "Pinata",
@@ -247,12 +335,20 @@ server.tool(
 
 server.tool(
   "uploadFile",
-  "Upload a file to Pinata IPFS from base64-encoded content",
+  "Upload a file to Pinata IPFS. Provide either a file:// URI or base64-encoded content.",
   {
+    resourceUri: z
+      .string()
+      .optional()
+      .describe("The file:// URI of the file to upload (e.g., file:///path/to/file.jpg)"),
     fileContent: z
       .string()
-      .describe("Base64-encoded file content to upload"),
-    fileName: z.string().describe("Name for the uploaded file"),
+      .optional()
+      .describe("Base64-encoded file content (use this if not providing resourceUri)"),
+    fileName: z
+      .string()
+      .optional()
+      .describe("Name for the uploaded file (auto-detected from path if using resourceUri)"),
     mimeType: z
       .string()
       .optional()
@@ -270,14 +366,46 @@ server.tool(
       .optional()
       .describe("Metadata key-value pairs for the file"),
   },
-  async ({ fileContent, fileName, mimeType, network, group_id, keyvalues }) => {
+  async ({ resourceUri, fileContent, fileName, mimeType, network, group_id, keyvalues }) => {
     try {
-      const fileBuffer = Buffer.from(fileContent, "base64");
-      const detectedMimeType = mimeType || getMimeType(fileName);
+      let fileBuffer: Buffer;
+      let finalFileName: string;
+
+      if (resourceUri) {
+        // File path mode
+        if (!resourceUri.startsWith("file://")) {
+          throw new Error("resourceUri must be a file:// URI");
+        }
+
+        let filePath: string;
+        if (process.platform === "win32") {
+          filePath = decodeURIComponent(
+            resourceUri.replace(/^file:\/\/\//, "").replace(/\//g, "\\")
+          );
+        } else {
+          filePath = decodeURIComponent(resourceUri.replace(/^file:\/\//, ""));
+        }
+
+        // Validate path is allowed
+        filePath = await validatePath(filePath);
+        fileBuffer = await fs.readFile(filePath);
+        finalFileName = fileName || path.basename(filePath);
+      } else if (fileContent) {
+        // Base64 content mode
+        if (!fileName) {
+          throw new Error("fileName is required when using fileContent");
+        }
+        fileBuffer = Buffer.from(fileContent, "base64");
+        finalFileName = fileName;
+      } else {
+        throw new Error("Either resourceUri or fileContent must be provided");
+      }
+
+      const detectedMimeType = mimeType || getMimeType(finalFileName);
 
       const formData = new FormData();
-      const blob = new Blob([fileBuffer], { type: detectedMimeType });
-      formData.append("file", blob, fileName);
+      const blob = new Blob([new Uint8Array(fileBuffer)], { type: detectedMimeType });
+      formData.append("file", blob, finalFileName);
       formData.append("network", network);
 
       if (group_id) {
@@ -1725,6 +1853,104 @@ function getMimeType(filePath: string): string {
 }
 
 // ============================================================================
+// File Resources
+// ============================================================================
+
+server.tool(
+  "listAllowedDirectories",
+  "List all directories that this MCP server is allowed to access for file operations",
+  {},
+  async () => {
+    const dirs =
+      allowedDirectories.length > 0
+        ? allowedDirectories
+        : [normalizePath(process.cwd())];
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Allowed directories:\n${dirs.join("\n")}`,
+        },
+      ],
+    };
+  }
+);
+
+// Helper function to determine if a file is text-based
+function isTextFile(mimeType: string): boolean {
+  return (
+    mimeType.startsWith("text/") ||
+    mimeType === "application/json" ||
+    mimeType === "application/javascript" ||
+    mimeType === "application/xml"
+  );
+}
+
+// List available file resources
+server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  return {
+    resources: [
+      {
+        uriTemplate: "file://{path}",
+        name: "Local Files",
+        description:
+          "Access local files to upload to Pinata IPFS (only from allowed directories)",
+      },
+    ],
+  };
+});
+
+// Read file resource contents
+server.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const uri = request.params.uri;
+
+  if (uri.startsWith("file://")) {
+    let filePath = decodeURIComponent(uri.replace(/^file:\/\//, ""));
+    if (process.platform === "win32") {
+      filePath = filePath.replace(/\//g, "\\");
+    }
+
+    try {
+      filePath = await validatePath(filePath);
+      const fileStats = await fs.stat(filePath);
+      if (!fileStats.isFile()) {
+        throw new Error(`Not a file: ${filePath}`);
+      }
+
+      const mimeType = getMimeType(filePath);
+
+      if (isTextFile(mimeType)) {
+        const content = await fs.readFile(filePath, "utf-8");
+        return {
+          contents: [
+            {
+              uri,
+              mimeType,
+              text: content,
+            },
+          ],
+        };
+      } else {
+        const content = await fs.readFile(filePath);
+        return {
+          contents: [
+            {
+              uri,
+              mimeType,
+              blob: content.toString("base64"),
+            },
+          ],
+        };
+      }
+    } catch (error) {
+      throw new Error(`Failed to read file: ${error}`);
+    }
+  }
+
+  throw new Error("Unsupported resource URI");
+});
+
+// ============================================================================
 // Server Startup
 // ============================================================================
 
@@ -1732,6 +1958,11 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Pinata MCP Server running on stdio");
+  if (allowedDirectories.length > 0) {
+    console.error("Allowed directories:", allowedDirectories);
+  } else {
+    console.error("No directories specified, using current working directory");
+  }
 }
 
 main().catch((error) => {
