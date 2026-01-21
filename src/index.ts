@@ -834,44 +834,57 @@ server.tool(
 // x402 Payment Instructions
 // ============================================================================
 
-const PaymentRequirementSchema = z.object({
-  asset: z
-    .string()
-    .describe("The token contract address (e.g., USDC on Base)"),
-  pay_to: z.string().describe("The wallet address to receive payments"),
-  network: z
-    .enum(["base", "base-sepolia", "eip155:8453", "eip155:84532"])
-    .describe("The blockchain network"),
-  amount: z
-    .string()
-    .describe("The amount required for access (in smallest unit, e.g., wei)"),
-  description: z.string().optional().describe("Optional description"),
-});
-
 server.tool(
   "createPaymentInstruction",
-  "Create a new x402 payment instruction for content monetization. This allows you to gate content behind a paywall.",
+  "Create a new x402 payment instruction for content monetization. Currently supports USDC (6 decimals) on Base/Base Sepolia only.",
   {
     name: z.string().describe("Name for the payment instruction"),
-    payment_requirements: z
-      .array(PaymentRequirementSchema)
-      .describe("Array of payment requirements"),
+    pay_to: z
+      .string()
+      .describe("Wallet address (0x...) to receive USDC payments"),
+    amount_usdc: z
+      .string()
+      .describe("Price in USD as a string (e.g., '0.01' for 1 cent, '1.50' for $1.50). Will be converted to USDC's 6 decimal format."),
+    network: z
+      .enum(["base", "base-sepolia"])
+      .default("base")
+      .describe("Blockchain network (Base mainnet or Base Sepolia testnet)"),
     description: z
       .string()
       .optional()
       .describe("Description of the payment instruction"),
   },
-  async ({ name, payment_requirements, description }) => {
+  async ({ name, pay_to, amount_usdc, network, description }) => {
     try {
       const url = "https://api.pinata.cloud/v3/x402/payment_instructions";
 
+      // USDC contract addresses
+      const USDC_ADDRESSES: Record<string, string> = {
+        "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "base-sepolia": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      };
+
+      // Convert USD amount to USDC smallest unit (6 decimals)
+      // e.g., "0.01" -> "10000", "1.50" -> "1500000"
+      const amountInSmallestUnit = Math.round(parseFloat(amount_usdc) * 1_000_000).toString();
+
       const payload: {
         name: string;
-        payment_requirements: typeof payment_requirements;
+        payment_requirements: Array<{
+          asset: string;
+          pay_to: string;
+          network: string;
+          amount: string;
+        }>;
         description?: string;
       } = {
         name,
-        payment_requirements,
+        payment_requirements: [{
+          asset: USDC_ADDRESSES[network],
+          pay_to,
+          network,
+          amount: amountInSmallestUnit,
+        }],
       };
 
       if (description) payload.description = description;
@@ -980,35 +993,62 @@ server.tool(
 
 server.tool(
   "updatePaymentInstruction",
-  "Update an existing x402 payment instruction",
+  "Update an existing x402 payment instruction. Currently supports USDC (6 decimals) on Base/Base Sepolia only.",
   {
     id: z
       .string()
       .describe("The unique identifier of the payment instruction to update"),
     name: z.string().optional().describe("Updated name"),
-    payment_requirements: z
-      .array(PaymentRequirementSchema)
+    pay_to: z
+      .string()
       .optional()
-      .describe("Updated payment requirements"),
+      .describe("Updated wallet address (0x...) to receive USDC payments"),
+    amount_usdc: z
+      .string()
+      .optional()
+      .describe("Updated price in USD as a string (e.g., '0.01' for 1 cent, '1.50' for $1.50)"),
+    network: z
+      .enum(["base", "base-sepolia"])
+      .optional()
+      .describe("Updated blockchain network"),
     description: z.string().optional().describe("Updated description"),
   },
-  async ({ id, name, payment_requirements, description }) => {
+  async ({ id, name, pay_to, amount_usdc, network, description }) => {
     try {
       const url = `https://api.pinata.cloud/v3/x402/payment_instructions/${id}`;
 
+      // USDC contract addresses
+      const USDC_ADDRESSES: Record<string, string> = {
+        "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "base-sepolia": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      };
+
       const payload: {
         name?: string;
-        payment_requirements?: typeof payment_requirements;
+        payment_requirements?: Array<{
+          asset: string;
+          pay_to: string;
+          network: string;
+          amount: string;
+        }>;
         description?: string;
       } = {};
 
       if (name) payload.name = name;
-      if (payment_requirements)
-        payload.payment_requirements = payment_requirements;
+      if (pay_to && amount_usdc && network) {
+        // Convert USD amount to USDC smallest unit (6 decimals)
+        const amountInSmallestUnit = Math.round(parseFloat(amount_usdc) * 1_000_000).toString();
+        payload.payment_requirements = [{
+          asset: USDC_ADDRESSES[network],
+          pay_to,
+          network,
+          amount: amountInSmallestUnit,
+        }];
+      }
       if (description) payload.description = description;
 
       const response = await fetch(url, {
-        method: "PUT",
+        method: "PATCH",
         headers: getHeaders(),
         body: JSON.stringify(payload),
       });
@@ -1066,64 +1106,27 @@ server.tool(
 );
 
 // ============================================================================
-// CID Signatures
+// x402 Payment Instruction CID Mappings
 // ============================================================================
 
 server.tool(
-  "signCid",
-  "Create an EIP-712 cryptographic signature for a CID to verify content authenticity",
+  "listPaymentInstructionCids",
+  "List CIDs associated with a payment instruction",
   {
-    cid: z.string().describe("The CID to sign"),
-  },
-  async ({ cid }) => {
-    try {
-      const url = "https://api.pinata.cloud/v3/ipfs/signature";
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: getHeaders(),
-        body: JSON.stringify({ cid }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to sign CID: ${response.status} ${response.statusText}\n${errorText}`
-        );
-      }
-
-      const data = await response.json();
-      return {
-        content: [
-          {
-            type: "text",
-            text: `✅ CID signed successfully!\n\n${JSON.stringify(data, null, 2)}`,
-          },
-        ],
-      };
-    } catch (error) {
-      return errorResponse(error);
-    }
-  }
-);
-
-server.tool(
-  "listSignatures",
-  "List signatures for files in your Pinata account",
-  {
+    id: z.string().describe("The payment instruction ID"),
     limit: z
       .number()
       .optional()
-      .describe("Maximum number of results to return"),
+      .describe("Limit the number of results returned"),
     pageToken: z.string().optional().describe("Token for pagination"),
   },
-  async ({ limit, pageToken }) => {
+  async ({ id, limit, pageToken }) => {
     try {
       const params = new URLSearchParams();
       if (limit) params.append("limit", limit.toString());
       if (pageToken) params.append("pageToken", pageToken);
 
-      const url = `https://api.pinata.cloud/v3/ipfs/signature?${params.toString()}`;
+      const url = `https://api.pinata.cloud/v3/x402/payment_instructions/${id}/cids?${params.toString()}`;
 
       const response = await fetch(url, {
         method: "GET",
@@ -1132,7 +1135,7 @@ server.tool(
 
       if (!response.ok) {
         throw new Error(
-          `Failed to list signatures: ${response.status} ${response.statusText}`
+          `Failed to list CIDs: ${response.status} ${response.statusText}`
         );
       }
 
@@ -1145,14 +1148,140 @@ server.tool(
 );
 
 server.tool(
+  "addCidToPaymentInstruction",
+  "Associate a CID with a payment instruction for x402 monetization",
+  {
+    id: z.string().describe("The payment instruction ID"),
+    cid: z.string().describe("The CID to associate"),
+  },
+  async ({ id, cid }) => {
+    try {
+      const url = `https://api.pinata.cloud/v3/x402/payment_instructions/${id}/cids/${cid}`;
+
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to add CID to payment instruction: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ CID added to payment instruction successfully!\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  "removeCidFromPaymentInstruction",
+  "Remove a CID association from a payment instruction",
+  {
+    id: z.string().describe("The payment instruction ID"),
+    cid: z.string().describe("The CID to remove"),
+  },
+  async ({ id, cid }) => {
+    try {
+      const url = `https://api.pinata.cloud/v3/x402/payment_instructions/${id}/cids/${cid}`;
+
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to remove CID from payment instruction: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ CID removed from payment instruction successfully\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// ============================================================================
+// CID Signatures
+// ============================================================================
+
+server.tool(
+  "addSignature",
+  "Add an EIP-712 cryptographic signature to a CID for content verification",
+  {
+    network: z
+      .enum(["public", "private"])
+      .default("public")
+      .describe("Whether the file is on public or private IPFS"),
+    cid: z.string().describe("The CID to sign"),
+    signature: z.string().describe("The EIP-712 signature"),
+    address: z.string().describe("The wallet address that created the signature"),
+  },
+  async ({ network, cid, signature, address }) => {
+    try {
+      const url = `https://api.pinata.cloud/v3/files/${network}/signature/${cid}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ signature, address }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to add signature: ${response.status} ${response.statusText}\n${errorText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Signature added successfully!\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
   "getSignature",
   "Get signature details for a specific CID",
   {
+    network: z
+      .enum(["public", "private"])
+      .default("public")
+      .describe("Whether the file is on public or private IPFS"),
     cid: z.string().describe("The CID to get the signature for"),
   },
-  async ({ cid }) => {
+  async ({ network, cid }) => {
     try {
-      const url = `https://api.pinata.cloud/v3/ipfs/signature/${cid}`;
+      const url = `https://api.pinata.cloud/v3/files/${network}/signature/${cid}`;
 
       const response = await fetch(url, {
         method: "GET",
@@ -1177,11 +1306,15 @@ server.tool(
   "deleteSignature",
   "Remove a signature from a CID",
   {
+    network: z
+      .enum(["public", "private"])
+      .default("public")
+      .describe("Whether the file is on public or private IPFS"),
     cid: z.string().describe("The CID to remove the signature from"),
   },
-  async ({ cid }) => {
+  async ({ network, cid }) => {
     try {
-      const url = `https://api.pinata.cloud/v3/ipfs/signature/${cid}`;
+      const url = `https://api.pinata.cloud/v3/files/${network}/signature/${cid}`;
 
       const response = await fetch(url, {
         method: "DELETE",
@@ -1203,6 +1336,353 @@ server.tool(
           },
         ],
       };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// ============================================================================
+// Signed Upload URLs
+// ============================================================================
+
+server.tool(
+  "createSignedUploadUrl",
+  "Create a signed URL for client-side file uploads without exposing your API key",
+  {
+    expires: z
+      .number()
+      .describe("How long the URL is valid in seconds after signing"),
+    max_file_size: z
+      .number()
+      .optional()
+      .describe("Restrict the max size of a file upload in bytes"),
+    allow_mime_types: z
+      .array(z.string())
+      .optional()
+      .describe("Array of allowed MIME types (supports wildcards like 'image/*')"),
+    group_id: z
+      .string()
+      .optional()
+      .describe("ID of the group that the file will be uploaded to"),
+    filename: z
+      .string()
+      .optional()
+      .describe("Name of the file that will be uploaded"),
+    keyvalues: z
+      .record(z.string())
+      .optional()
+      .describe("Metadata key-value pairs for the file"),
+  },
+  async ({ expires, max_file_size, allow_mime_types, group_id, filename, keyvalues }) => {
+    try {
+      const url = "https://uploads.pinata.cloud/v3/files/sign";
+      const date = Math.floor(Date.now() / 1000);
+
+      const payload: {
+        date: number;
+        expires: number;
+        max_file_size?: number;
+        allow_mime_types?: string[];
+        group_id?: string;
+        filename?: string;
+        keyvalues?: Record<string, string>;
+      } = { date, expires };
+
+      if (max_file_size) payload.max_file_size = max_file_size;
+      if (allow_mime_types) payload.allow_mime_types = allow_mime_types;
+      if (group_id) payload.group_id = group_id;
+      if (filename) payload.filename = filename;
+      if (keyvalues) payload.keyvalues = keyvalues;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to create signed upload URL: ${response.status} ${response.statusText}\n${errorText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Signed upload URL created!\n\nURL: ${data.data}\n\nExpires in ${expires} seconds`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// ============================================================================
+// Pin by CID
+// ============================================================================
+
+server.tool(
+  "pinByCid",
+  "Pin an existing CID from the IPFS network to your Pinata account",
+  {
+    cid: z.string().describe("CID of the file you want to pin"),
+    name: z.string().optional().describe("Custom name for the file"),
+    group_id: z.string().optional().describe("ID of the group to add the file to"),
+    keyvalues: z
+      .record(z.string())
+      .optional()
+      .describe("Metadata key-value pairs for the file"),
+    host_nodes: z
+      .array(z.string())
+      .optional()
+      .describe("Array of host node IDs to fetch from"),
+  },
+  async ({ cid, name, group_id, keyvalues, host_nodes }) => {
+    try {
+      const url = "https://api.pinata.cloud/v3/files/public/pin_by_cid";
+
+      const payload: {
+        cid: string;
+        name?: string;
+        group_id?: string;
+        keyvalues?: Record<string, string>;
+        host_nodes?: string[];
+      } = { cid };
+
+      if (name) payload.name = name;
+      if (group_id) payload.group_id = group_id;
+      if (keyvalues) payload.keyvalues = keyvalues;
+      if (host_nodes) payload.host_nodes = host_nodes;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to pin CID: ${response.status} ${response.statusText}\n${errorText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Pin request queued!\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  "queryPinRequests",
+  "Query the status of pin by CID requests",
+  {
+    order: z
+      .enum(["ASC", "DESC"])
+      .optional()
+      .describe("Sort by date_queued"),
+    status: z
+      .enum([
+        "prechecking",
+        "backfilled",
+        "retreiving",
+        "expired",
+        "searching",
+        "over_free_limit",
+        "over_max_size",
+        "invalid_object",
+        "bad_host_node",
+      ])
+      .optional()
+      .describe("Filter by status"),
+    cid: z.string().optional().describe("Filter by CID"),
+    limit: z.number().optional().describe("Limit number of results"),
+    pageToken: z.string().optional().describe("Token for pagination"),
+  },
+  async ({ order, status, cid, limit, pageToken }) => {
+    try {
+      const params = new URLSearchParams();
+      if (order) params.append("order", order);
+      if (status) params.append("status", status);
+      if (cid) params.append("cid", cid);
+      if (limit) params.append("limit", limit.toString());
+      if (pageToken) params.append("pageToken", pageToken);
+
+      const url = `https://api.pinata.cloud/v3/files/public/pin_by_cid?${params.toString()}`;
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to query pin requests: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return successResponse(data);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  "cancelPinRequest",
+  "Cancel a pending pin by CID request",
+  {
+    id: z.string().describe("ID of the pin request to cancel"),
+  },
+  async ({ id }) => {
+    try {
+      const url = `https://api.pinata.cloud/v3/files/public/pin_by_cid/${id}`;
+
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to cancel pin request: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Pin request cancelled\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+// ============================================================================
+// Vectorize (AI)
+// ============================================================================
+
+server.tool(
+  "vectorizeFile",
+  "Vectorize a file for AI/semantic search capabilities",
+  {
+    file_id: z.string().describe("ID of the file to vectorize"),
+  },
+  async ({ file_id }) => {
+    try {
+      const url = `https://uploads.pinata.cloud/v3/vectorize/files/${file_id}`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to vectorize file: ${response.status} ${response.statusText}\n${errorText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ File vectorized successfully!\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  "deleteFileVectors",
+  "Delete vectors for a file",
+  {
+    file_id: z.string().describe("ID of the file to delete vectors for"),
+  },
+  async ({ file_id }) => {
+    try {
+      const url = `https://uploads.pinata.cloud/v3/vectorize/files/${file_id}`;
+
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to delete file vectors: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const data = await response.json();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ File vectors deleted\n\n${JSON.stringify(data, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return errorResponse(error);
+    }
+  }
+);
+
+server.tool(
+  "queryVectors",
+  "Query vectorized files in a group using semantic search",
+  {
+    group_id: z.string().describe("ID of the group to search"),
+    text: z.string().describe("Query string for semantic search"),
+  },
+  async ({ group_id, text }) => {
+    try {
+      const url = `https://uploads.pinata.cloud/v3/vectorize/groups/${group_id}/query`;
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to query vectors: ${response.status} ${response.statusText}\n${errorText}`
+        );
+      }
+
+      const data = await response.json();
+      return successResponse(data);
     } catch (error) {
       return errorResponse(error);
     }
