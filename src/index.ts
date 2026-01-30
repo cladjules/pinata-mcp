@@ -5,10 +5,7 @@ import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import {
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // Command line argument parsing for allowed directories
 const args = process.argv.slice(2);
@@ -1886,69 +1883,53 @@ function isTextFile(mimeType: string): boolean {
   );
 }
 
-// List available file resources
-server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  return {
-    resources: [
-      {
-        uriTemplate: "file://{path}",
-        name: "Local Files",
-        description:
-          "Access local files to upload to Pinata IPFS (only from allowed directories)",
-      },
-    ],
-  };
-});
-
-// Read file resource contents
-server.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const uri = request.params.uri;
-
-  if (uri.startsWith("file://")) {
-    let filePath = decodeURIComponent(uri.replace(/^file:\/\//, ""));
+// Register file resource template for local file access
+server.resource(
+  "Local Files",
+  new ResourceTemplate("file://{+path}", { list: undefined }),
+  {
+    description:
+      "Access local files to upload to Pinata IPFS (only from allowed directories)",
+  },
+  async (uri, { path }) => {
+    let filePath = decodeURIComponent(path as string);
     if (process.platform === "win32") {
       filePath = filePath.replace(/\//g, "\\");
     }
 
-    try {
-      filePath = await validatePath(filePath);
-      const fileStats = await fs.stat(filePath);
-      if (!fileStats.isFile()) {
-        throw new Error(`Not a file: ${filePath}`);
-      }
+    filePath = await validatePath(filePath);
+    const fileStats = await fs.stat(filePath);
+    if (!fileStats.isFile()) {
+      throw new Error(`Not a file: ${filePath}`);
+    }
 
-      const mimeType = getMimeType(filePath);
+    const mimeType = getMimeType(filePath);
 
-      if (isTextFile(mimeType)) {
-        const content = await fs.readFile(filePath, "utf-8");
-        return {
-          contents: [
-            {
-              uri,
-              mimeType,
-              text: content,
-            },
-          ],
-        };
-      } else {
-        const content = await fs.readFile(filePath);
-        return {
-          contents: [
-            {
-              uri,
-              mimeType,
-              blob: content.toString("base64"),
-            },
-          ],
-        };
-      }
-    } catch (error) {
-      throw new Error(`Failed to read file: ${error}`);
+    if (isTextFile(mimeType)) {
+      const content = await fs.readFile(filePath, "utf-8");
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType,
+            text: content,
+          },
+        ],
+      };
+    } else {
+      const content = await fs.readFile(filePath);
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType,
+            blob: content.toString("base64"),
+          },
+        ],
+      };
     }
   }
-
-  throw new Error("Unsupported resource URI");
-});
+);
 
 // ============================================================================
 // Server Startup
