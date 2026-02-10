@@ -5,11 +5,10 @@
 import "dotenv/config";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { setupPinataTools, PINATA_TOOLS } from "./setupTools.js";
+import { setupPinataTools } from "./setupTools.js";
 
 // Get environment variables
 const PINATA_JWT = process.env.PINATA_JWT;
-const GATEWAY_URL = process.env.GATEWAY_URL;
 
 // Map to store servers by session ID
 const servers: { [sessionId: string]: Server } = {};
@@ -139,8 +138,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           };
           break;
 
+        case "notifications/initialized":
+          // Client signals initialization is complete - no response needed
+          console.log("Client initialization complete");
+          res.status(200).end();
+          return;
+
         case "tools/list":
-          result = { tools: PINATA_TOOLS };
+          // Get tools from the request handlers
+          const handlers = (server as any)._requestHandlers || new Map();
+          const listToolsHandler = handlers.get("tools/list");
+          if (listToolsHandler) {
+            const toolsResult = await listToolsHandler({
+              method: "tools/list",
+              params: {},
+            });
+            result = toolsResult;
+          } else {
+            result = { tools: [] };
+          }
           break;
 
         case "tools/call":
