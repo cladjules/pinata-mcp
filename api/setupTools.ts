@@ -170,24 +170,24 @@ export function setupPinataTools(
     {
       name: "uploadFile",
       description:
-        "Upload a file to Pinata IPFS. Provide either a file:// URI or base64-encoded content.",
+        "Upload a file to Pinata IPFS. Provide either a sourceUrl (to copy from another URL), a file:// URI, or base64-encoded content.",
       inputSchema: {
         type: "object" as const,
         properties: {
-          resourceUri: {
+          sourceUrl: {
             type: "string",
             description:
-              "The file:// URI of the file to upload (e.g., file:///path/to/file.jpg)",
+              "URL to download the file from (e.g., https://example.com/image.jpg)",
           },
           fileContent: {
             type: "string",
             description:
-              "Base64-encoded file content (use this if not providing resourceUri)",
+              "Base64-encoded file content (use this if not providing resourceUri or sourceUrl)",
           },
           fileName: {
             type: "string",
             description:
-              "Name for the uploaded file (auto-detected from path if using resourceUri)",
+              "Name for the uploaded file (auto-detected from path/URL if using resourceUri or sourceUrl)",
           },
           mimeType: {
             type: "string",
@@ -362,7 +362,7 @@ export function setupPinataTools(
 
         case "uploadFile": {
           const {
-            resourceUri,
+            sourceUrl,
             fileContent,
             fileName,
             mimeType,
@@ -374,7 +374,23 @@ export function setupPinataTools(
           let fileBuffer: Buffer;
           let finalFileName: string;
 
-          if (fileContent) {
+          if (sourceUrl) {
+            // URL download mode
+            const urlResponse = await fetch(sourceUrl);
+            if (!urlResponse.ok) {
+              throw new Error(
+                `Failed to download file from URL: ${urlResponse.status} ${urlResponse.statusText}`,
+              );
+            }
+            const arrayBuffer = await urlResponse.arrayBuffer();
+            fileBuffer = Buffer.from(arrayBuffer);
+
+            // Try to extract filename from URL if not provided
+            finalFileName =
+              fileName ||
+              sourceUrl.split("/").pop()?.split("?")[0] ||
+              "downloaded-file";
+          } else if (fileContent) {
             // Base64 content mode
             if (!fileName) {
               throw new Error("fileName is required when using fileContent");
@@ -383,7 +399,7 @@ export function setupPinataTools(
             finalFileName = fileName;
           } else {
             throw new Error(
-              "resourceUri not supported in serverless mode. Use fileContent with base64-encoded data.",
+              "Use sourceUrl to download from a URL or fileContent with base64-encoded data.",
             );
           }
 
