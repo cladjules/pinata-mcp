@@ -35,6 +35,11 @@ function checkAuth(
     return true; // No auth required if not configured
   }
 
+  console.log("Checking API key authentication");
+  console.log(API_KEYS);
+  console.log("API_KEYS");
+  console.log(apiKey);
+
   if (!apiKey || !API_KEYS.has(apiKey)) {
     console.error(
       `Unauthorized access attempt${clientInfo ? ` from ${clientInfo}` : ""}`,
