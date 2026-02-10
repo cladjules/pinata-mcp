@@ -1,24 +1,17 @@
 /**
  * Vercel API Route for MCP Server
- * Uses the standard SSEServerTransport with in-memory session storage
+ * Direct request/response handling without streaming transport
  */
 import "dotenv/config";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { setupPinataTools } from "./setupTools.js";
 
 // Get environment variables
 const PINATA_JWT = process.env.PINATA_JWT;
+const GATEWAY_URL = process.env.GATEWAY_URL;
 
-// Transport storage type
-type TransportStorage = {
-  [sessionId: string]: SSEServerTransport;
-};
-
-// Map to store transports AND servers by session ID
-// In serverless mode, each session needs its own server instance
-const transports: TransportStorage = {};
+// Map to store servers by session ID
 const servers: { [sessionId: string]: Server } = {};
 
 // Auth checker
@@ -107,99 +100,107 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Handle MCP request with session management
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    const method = req.body?.method;
+    const { method, params, id: requestId } = req.body;
 
     console.log("MCP request received:", {
       sessionId,
       method,
-      hasBody: !!req.body,
+      requestId,
     });
 
-    let transport: SSEServerTransport;
+    // Get or create server for this session
     let server: Server;
-
-    if (sessionId && transports[sessionId]) {
-      // Reuse existing transport and server for this session
-      console.log(`Reusing existing session: ${sessionId}`);
-      transport = transports[sessionId];
+    if (sessionId && servers[sessionId]) {
       server = servers[sessionId];
-    } else if (method === "initialize") {
-      // Initialize request - create new transport and server
-      console.log(
-        `Creating new session${sessionId ? ` with ID: ${sessionId}` : ""}`,
-      );
-
-      server = createMCPServer();
-      transport = new SSEServerTransport("/message", res);
-
-      // Store transport and server
-      if (sessionId) {
-        transports[sessionId] = transport;
-        servers[sessionId] = server;
-      }
-
-      // Connect transport to server
-      await server.connect(transport);
-
-      // Set up cleanup on close
-      transport.onclose = () => {
-        console.log("Transport closing:", { sessionId });
-        if (sessionId) {
-          delete transports[sessionId];
-          delete servers[sessionId];
-        }
-      };
-    } else if (sessionId && !transports[sessionId]) {
-      // Session ID provided but not found
-      console.error("Session not found:", { sessionId });
-      res.status(404).json({
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message:
-            "Session not found. Please send an initialize request with the same mcp-session-id header.",
-        },
-        id: req.body?.id || null,
-      });
-      return;
+      console.log(`Reusing existing session: ${sessionId}`);
     } else {
-      // No session ID and not an initialization request
-      console.error("Bad request: No session ID for non-initialize request");
-      res.status(400).json({
-        jsonrpc: "2.0",
-        error: {
-          code: -32000,
-          message:
-            "Bad Request: Session ID required or send initialize request",
-        },
-        id: req.body?.id || null,
-      });
-      return;
+      server = createMCPServer();
+      if (sessionId) {
+        servers[sessionId] = server;
+        console.log(`Created new session: ${sessionId}`);
+      }
     }
 
-    // Handle the request with the transport
-    console.log(`Handling request with transport, method: ${method}`);
-
+    // Handle the MCP request directly
     try {
-      await transport.handlePostMessage(req.body, res);
-      console.log(`Request completed successfully, method: ${method}`);
+      let result;
+
+      switch (method) {
+        case "initialize":
+          result = {
+            protocolVersion: "2024-11-05",
+            capabilities: {
+              tools: {},
+            },
+            serverInfo: {
+              name: "mcp-pinata",
+              version: "1.0.0",
+            },
+          };
+          break;
+
+        case "tools/list":
+          // Get tools from the request handlers
+          const handlers = (server as any)._requestHandlers || new Map();
+          const listToolsHandler = handlers.get("tools/list");
+          if (listToolsHandler) {
+            const toolsResult = await listToolsHandler({
+              method: "tools/list",
+              params: {},
+            });
+            result = toolsResult;
+          } else {
+            result = { tools: [] };
+          }
+          break;
+
+        case "tools/call":
+          // Call tool handler
+          const callHandlers = (server as any)._requestHandlers || new Map();
+          const callToolHandler = callHandlers.get("tools/call");
+          if (callToolHandler) {
+            result = await callToolHandler({
+              method: "tools/call",
+              params,
+            });
+          } else {
+            throw new Error("Tool call handler not found");
+          }
+          break;
+
+        default:
+          res.status(400).json({
+            jsonrpc: "2.0",
+            error: {
+              code: -32601,
+              message: `Method not found: ${method}`,
+            },
+            id: requestId,
+          });
+          return;
+      }
+
+      // Send successful response
+      res.status(200).json({
+        jsonrpc: "2.0",
+        result,
+        id: requestId,
+      });
     } catch (error) {
-      console.error("Error in transport.handlePostMessage:", {
+      console.error("Error handling request:", {
         method,
         sessionId,
         error: error instanceof Error ? error.message : error,
       });
 
-      if (!res.headersSent) {
-        res.status(500).json({
-          jsonrpc: "2.0",
-          error: {
-            code: -32603,
-            message: "Internal error processing request",
-          },
-          id: req.body?.id || null,
-        });
-      }
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32603,
+          message: error instanceof Error ? error.message : "Internal error",
+        },
+        id: requestId,
+      });
     }
   } catch (error) {
     console.error("Handler error:", error);
