@@ -55,91 +55,92 @@ Add the following config to `claude_desktop_config.json`:
 
 ### Authentication
 
-| Tool | Description |
-|------|-------------|
+| Tool                 | Description                                      |
+| -------------------- | ------------------------------------------------ |
 | `testAuthentication` | Verify that your Pinata JWT is valid and working |
 
 ### File Operations
 
-| Tool | Description |
-|------|-------------|
-| `uploadFile` | Upload a file to Pinata (public or private IPFS) |
-| `searchFiles` | Search files by name, CID, or MIME type |
-| `getFileById` | Get detailed file information by ID |
-| `updateFile` | Update file metadata (name, key-values) |
-| `deleteFile` | Delete a file from Pinata |
+| Tool          | Description                                                             |
+| ------------- | ----------------------------------------------------------------------- |
+| `uploadFile`  | Upload a single file to Pinata from a URL, base64 content, or file path |
+| `uploadFiles` | Upload multiple files at once with optional folder organization         |
+| `searchFiles` | Search files by name, CID, or MIME type                                 |
+| `getFileById` | Get detailed file information by ID                                     |
+| `updateFile`  | Update file metadata (name, key-values)                                 |
+| `deleteFile`  | Delete a file from Pinata                                               |
 
 ### Content Access
 
-| Tool | Description |
-|------|-------------|
-| `createLink` | Create a gateway link for public or private files |
+| Tool                        | Description                                          |
+| --------------------------- | ---------------------------------------------------- |
+| `createLink`                | Create a gateway link for public or private files    |
 | `createPrivateDownloadLink` | Generate a temporary download link for private files |
-| `fetchFromGateway` | Fetch content from IPFS via Pinata gateway |
+| `fetchFromGateway`          | Fetch content from IPFS via Pinata gateway           |
 
 ### Group Operations
 
-| Tool | Description |
-|------|-------------|
-| `listGroups` | List groups with optional filtering |
-| `createGroup` | Create a new group for organizing files |
-| `getGroup` | Get group details by ID |
-| `updateGroup` | Update group information |
-| `deleteGroup` | Delete a group |
-| `addFileToGroup` | Add a file to a group |
-| `removeFileFromGroup` | Remove a file from a group |
+| Tool                  | Description                             |
+| --------------------- | --------------------------------------- |
+| `listGroups`          | List groups with optional filtering     |
+| `createGroup`         | Create a new group for organizing files |
+| `getGroup`            | Get group details by ID                 |
+| `updateGroup`         | Update group information                |
+| `deleteGroup`         | Delete a group                          |
+| `addFileToGroup`      | Add a file to a group                   |
+| `removeFileFromGroup` | Remove a file from a group              |
 
 ### x402 Payment Instructions
 
 Tools for content monetization using the x402 protocol:
 
-| Tool | Description |
-|------|-------------|
-| `createPaymentInstruction` | Create payment requirements for gated content |
-| `listPaymentInstructions` | List/filter existing payment instructions |
-| `getPaymentInstruction` | Get details of a specific payment instruction |
-| `updatePaymentInstruction` | Modify payment instruction settings |
-| `deletePaymentInstruction` | Remove a payment instruction |
-| `listPaymentInstructionCids` | List CIDs associated with a payment instruction |
-| `addCidToPaymentInstruction` | Associate a CID with a payment instruction |
-| `removeCidFromPaymentInstruction` | Remove a CID association |
+| Tool                              | Description                                     |
+| --------------------------------- | ----------------------------------------------- |
+| `createPaymentInstruction`        | Create payment requirements for gated content   |
+| `listPaymentInstructions`         | List/filter existing payment instructions       |
+| `getPaymentInstruction`           | Get details of a specific payment instruction   |
+| `updatePaymentInstruction`        | Modify payment instruction settings             |
+| `deletePaymentInstruction`        | Remove a payment instruction                    |
+| `listPaymentInstructionCids`      | List CIDs associated with a payment instruction |
+| `addCidToPaymentInstruction`      | Associate a CID with a payment instruction      |
+| `removeCidFromPaymentInstruction` | Remove a CID association                        |
 
 ### CID Signatures
 
 Tools for cryptographic content verification using EIP-712 signatures:
 
-| Tool | Description |
-|------|-------------|
-| `addSignature` | Add a cryptographic signature to a CID |
-| `getSignature` | Get signature details by CID |
-| `deleteSignature` | Remove a signature |
+| Tool              | Description                            |
+| ----------------- | -------------------------------------- |
+| `addSignature`    | Add a cryptographic signature to a CID |
+| `getSignature`    | Get signature details by CID           |
+| `deleteSignature` | Remove a signature                     |
 
 ### Signed Upload URLs
 
-| Tool | Description |
-|------|-------------|
+| Tool                    | Description                                    |
+| ----------------------- | ---------------------------------------------- |
 | `createSignedUploadUrl` | Create a presigned URL for client-side uploads |
 
 ### Pin by CID
 
-| Tool | Description |
-|------|-------------|
-| `pinByCid` | Pin an existing CID from the IPFS network |
-| `queryPinRequests` | Query the status of pin requests |
-| `cancelPinRequest` | Cancel a pending pin request |
+| Tool               | Description                               |
+| ------------------ | ----------------------------------------- |
+| `pinByCid`         | Pin an existing CID from the IPFS network |
+| `queryPinRequests` | Query the status of pin requests          |
+| `cancelPinRequest` | Cancel a pending pin request              |
 
 ### Vectorize (AI/Semantic Search)
 
-| Tool | Description |
-|------|-------------|
-| `vectorizeFile` | Vectorize a file for semantic search |
-| `deleteFileVectors` | Delete vectors for a file |
-| `queryVectors` | Query vectorized files using semantic search |
+| Tool                | Description                                  |
+| ------------------- | -------------------------------------------- |
+| `vectorizeFile`     | Vectorize a file for semantic search         |
+| `deleteFileVectors` | Delete vectors for a file                    |
+| `queryVectors`      | Query vectorized files using semantic search |
 
 ### Utilities
 
-| Tool | Description |
-|------|-------------|
+| Tool                     | Description                                                |
+| ------------------------ | ---------------------------------------------------------- |
 | `listAllowedDirectories` | List directories the server can access for file operations |
 
 ## Local Development
@@ -250,14 +251,24 @@ npx @modelcontextprotocol/inspector --cli --method tools/call \
 Test my Pinata connection:
 "Test my Pinata authentication to make sure everything is working"
 
-Upload an image to Pinata:
-"Upload this image to my Pinata account as a private file named 'My Example Image'"
+Upload a single file from URL:
+"Upload the image from https://example.com/logo.png to my Pinata account as a public file"
+
+Upload multiple files from URLs:
+"Upload these three images to Pinata in a folder called 'gallery':
+https://example.com/image1.jpg, https://example.com/image2.jpg, https://example.com/image3.jpg"
+
+Upload with base64 content:
+"Upload this base64 image data to Pinata as 'avatar.png'"
+
+Create a group and upload files:
+"Create a new group called 'Project Assets' on Pinata, then upload these files to that group"
 
 Search for files:
 "Search my Pinata account for all PNG files"
 
-Create a group and add files:
-"Create a new group called 'Project Assets' on Pinata, then find all my JSON files and add them to this group"
+Batch upload with folder structure:
+"Download and upload all images from these URLs to a folder called 'downloads' in my Pinata account"
 
 Fetch content from IPFS:
 "Fetch the content with CID QmX... from IPFS"

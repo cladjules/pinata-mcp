@@ -330,7 +330,7 @@ export function setupPinataTools(
               type: "string",
             },
           },
-          files: {
+          fileContents: {
             type: "array",
             description: "Array of files to upload with detailed options",
             items: {
@@ -595,7 +595,7 @@ export function setupPinataTools(
         case "uploadFiles": {
           const {
             sourceUrls,
-            files,
+            fileContents,
             folderPrefix,
             network = "public",
             group_id,
@@ -605,19 +605,19 @@ export function setupPinataTools(
           // Convert sourceUrls array to files array format if provided
           let filesToUpload: any[];
           if (sourceUrls && Array.isArray(sourceUrls)) {
-            if (files && files.length > 0) {
+            if (fileContents && fileContents.length > 0) {
               throw new Error(
-                "Cannot provide both sourceUrls and files parameters. Use one or the other.",
+                "Cannot provide both sourceUrls and fileContents parameters. Use one or the other.",
               );
             }
             filesToUpload = sourceUrls.map((url: string) => ({
               sourceUrl: url,
             }));
-          } else if (files && Array.isArray(files)) {
-            filesToUpload = files;
+          } else if (fileContents && Array.isArray(fileContents)) {
+            filesToUpload = fileContents;
           } else {
             throw new Error(
-              "Either sourceUrls array or files array is required",
+              "Either sourceUrls array or fileContents array is required",
             );
           }
 
