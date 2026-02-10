@@ -5,7 +5,7 @@
 import "dotenv/config";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { setupPinataTools } from "./setupTools.js";
+import { setupPinataTools, PINATA_TOOLS } from "./setupTools.js";
 
 // Get environment variables
 const PINATA_JWT = process.env.PINATA_JWT;
@@ -140,18 +140,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           break;
 
         case "tools/list":
-          // Get tools from the request handlers
-          const handlers = (server as any)._requestHandlers || new Map();
-          const listToolsHandler = handlers.get("tools/list");
-          if (listToolsHandler) {
-            const toolsResult = await listToolsHandler({
-              method: "tools/list",
-              params: {},
-            });
-            result = toolsResult;
-          } else {
-            result = { tools: [] };
-          }
+          result = { tools: PINATA_TOOLS };
           break;
 
         case "tools/call":
