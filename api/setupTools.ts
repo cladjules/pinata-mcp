@@ -52,6 +52,96 @@ function getMimeType(filePath: string): string {
   return mimeTypes[extension] || "application/octet-stream";
 }
 
+// Helper to prepare file buffer from sourceUrl or fileContent
+async function prepareFileBuffer(
+  sourceUrl?: string,
+  fileContent?: string,
+  fileName?: string,
+  fallbackFileName?: string,
+): Promise<{ buffer: Buffer; fileName: string }> {
+  let fileBuffer: Buffer;
+  let finalFileName: string;
+
+  if (sourceUrl) {
+    // URL download mode
+    const urlResponse = await fetch(sourceUrl);
+    if (!urlResponse.ok) {
+      throw new Error(
+        `Failed to download file from URL: ${urlResponse.status} ${urlResponse.statusText}`,
+      );
+    }
+    const arrayBuffer = await urlResponse.arrayBuffer();
+    fileBuffer = Buffer.from(arrayBuffer);
+
+    // Try to extract filename from URL if not provided
+    finalFileName =
+      fileName ||
+      sourceUrl.split("/").pop()?.split("?")[0] ||
+      fallbackFileName ||
+      "downloaded-file";
+  } else if (fileContent) {
+    // Base64 content mode
+    if (!fileName) {
+      throw new Error(
+        `fileName is required when using fileContent${fallbackFileName ? ` (for ${fallbackFileName})` : ""}`,
+      );
+    }
+    fileBuffer = Buffer.from(fileContent, "base64");
+    finalFileName = fileName;
+  } else {
+    throw new Error(
+      "Use sourceUrl to download from a URL or fileContent with base64-encoded data.",
+    );
+  }
+
+  return { buffer: fileBuffer, fileName: finalFileName };
+}
+
+// Helper to upload a single file to Pinata
+async function uploadSingleFile(
+  PINATA_JWT: string,
+  fileBuffer: Buffer,
+  fileName: string,
+  mimeType: string | undefined,
+  network: string,
+  group_id?: string,
+  keyvalues?: Record<string, unknown>,
+): Promise<any> {
+  const detectedMimeType = mimeType || getMimeType(fileName);
+
+  const formData = new FormData();
+  const blob = new Blob([new Uint8Array(fileBuffer)], {
+    type: detectedMimeType,
+  });
+  formData.append("file", blob, fileName);
+  formData.append("network", network);
+
+  if (group_id) {
+    formData.append("group_id", group_id);
+  }
+
+  if (keyvalues) {
+    formData.append("keyvalues", JSON.stringify(keyvalues));
+  }
+
+  const response = await fetch("https://uploads.pinata.cloud/v3/files", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PINATA_JWT}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to upload file: ${response.status} ${response.statusText}\n${errorText}`,
+    );
+  }
+
+  return await response.json();
+}
+
 export function setupPinataTools(
   server: Server,
   PINATA_JWT: string | undefined,
@@ -168,6 +258,20 @@ export function setupPinataTools(
       },
     },
     {
+      name: "createGroup",
+      description: "Create a new group for organizing files on Pinata",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          name: {
+            type: "string",
+            description: "The name of the group to create",
+          },
+        },
+        required: ["name"],
+      },
+    },
+    {
       name: "uploadFile",
       description:
         "Upload a file to Pinata IPFS. Provide either a sourceUrl (to copy from another URL), a file:// URI, or base64-encoded content.",
@@ -207,6 +311,69 @@ export function setupPinataTools(
           keyvalues: {
             type: "object",
             description: "Metadata key-value pairs for the file",
+          },
+        },
+      },
+    },
+    {
+      name: "uploadFiles",
+      description:
+        "Upload multiple files at once to Pinata IPFS as part of the same folder/batch. Each file can have a sourceUrl or base64 content. Alternatively, provide a sourceUrls array for a quick batch upload from URLs.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          sourceUrls: {
+            type: "array",
+            description:
+              "Array of URLs to download and upload (shortcut for simple URL batch uploads)",
+            items: {
+              type: "string",
+            },
+          },
+          files: {
+            type: "array",
+            description: "Array of files to upload with detailed options",
+            items: {
+              type: "object",
+              properties: {
+                sourceUrl: {
+                  type: "string",
+                  description: "URL to download the file from",
+                },
+                fileContent: {
+                  type: "string",
+                  description: "Base64-encoded file content",
+                },
+                fileName: {
+                  type: "string",
+                  description:
+                    "Name for the file (auto-detected from URL if not provided)",
+                },
+                mimeType: {
+                  type: "string",
+                  description: "MIME type (auto-detected if not provided)",
+                },
+              },
+            },
+          },
+          folderPrefix: {
+            type: "string",
+            description:
+              "Optional folder prefix to add to all filenames (e.g., 'my-folder/' will create 'my-folder/file1.jpg')",
+          },
+          network: {
+            type: "string",
+            enum: ["public", "private"],
+            default: "public",
+            description: "Whether to upload to public or private IPFS",
+          },
+          group_id: {
+            type: "string",
+            description: "ID of a group to add all files to",
+          },
+          keyvalues: {
+            type: "object",
+            description: "Metadata key-value pairs to apply to all files",
           },
         },
       },
@@ -360,6 +527,34 @@ export function setupPinataTools(
           };
         }
 
+        case "createGroup": {
+          const { name } = args as any;
+          const url = "https://api.pinata.cloud/v3/files/groups";
+
+          const response = await fetch(url, {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({ name }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(
+              `Failed to create group: ${response.status} ${response.statusText}\n${errorText}`,
+            );
+          }
+
+          const data = await response.json();
+          return {
+            content: [
+              {
+                type: "text",
+                text: `✅ Group created successfully!\n\n${JSON.stringify(data, null, 2)}`,
+              },
+            ],
+          };
+        }
+
         case "uploadFile": {
           const {
             sourceUrl,
@@ -371,79 +566,123 @@ export function setupPinataTools(
             keyvalues,
           } = args as any;
 
-          let fileBuffer: Buffer;
-          let finalFileName: string;
-
-          if (sourceUrl) {
-            // URL download mode
-            const urlResponse = await fetch(sourceUrl);
-            if (!urlResponse.ok) {
-              throw new Error(
-                `Failed to download file from URL: ${urlResponse.status} ${urlResponse.statusText}`,
-              );
-            }
-            const arrayBuffer = await urlResponse.arrayBuffer();
-            fileBuffer = Buffer.from(arrayBuffer);
-
-            // Try to extract filename from URL if not provided
-            finalFileName =
-              fileName ||
-              sourceUrl.split("/").pop()?.split("?")[0] ||
-              "downloaded-file";
-          } else if (fileContent) {
-            // Base64 content mode
-            if (!fileName) {
-              throw new Error("fileName is required when using fileContent");
-            }
-            fileBuffer = Buffer.from(fileContent, "base64");
-            finalFileName = fileName;
-          } else {
-            throw new Error(
-              "Use sourceUrl to download from a URL or fileContent with base64-encoded data.",
-            );
-          }
-
-          const detectedMimeType = mimeType || getMimeType(finalFileName);
-
-          const formData = new FormData();
-          const blob = new Blob([new Uint8Array(fileBuffer)], {
-            type: detectedMimeType,
-          });
-          formData.append("file", blob, finalFileName);
-          formData.append("network", network);
-
-          if (group_id) {
-            formData.append("group_id", group_id);
-          }
-
-          if (keyvalues) {
-            formData.append("keyvalues", JSON.stringify(keyvalues));
-          }
-
-          const response = await fetch(
-            "https://uploads.pinata.cloud/v3/files",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${PINATA_JWT}`,
-              },
-              body: formData,
-            },
+          const { buffer, fileName: finalFileName } = await prepareFileBuffer(
+            sourceUrl,
+            fileContent,
+            fileName,
           );
 
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-              `Failed to upload file: ${response.status} ${response.statusText}\n${errorText}`,
-            );
-          }
+          const data = await uploadSingleFile(
+            PINATA_JWT!,
+            buffer,
+            finalFileName,
+            mimeType,
+            network,
+            group_id,
+            keyvalues,
+          );
 
-          const data = await response.json();
           return {
             content: [
               {
                 type: "text",
                 text: `✅ File uploaded successfully!\n\n${JSON.stringify(data, null, 2)}`,
+              },
+            ],
+          };
+        }
+
+        case "uploadFiles": {
+          const {
+            sourceUrls,
+            files,
+            folderPrefix,
+            network = "public",
+            group_id,
+            keyvalues,
+          } = args as any;
+
+          // Convert sourceUrls array to files array format if provided
+          let filesToUpload: any[];
+          if (sourceUrls && Array.isArray(sourceUrls)) {
+            if (files && files.length > 0) {
+              throw new Error(
+                "Cannot provide both sourceUrls and files parameters. Use one or the other.",
+              );
+            }
+            filesToUpload = sourceUrls.map((url: string) => ({
+              sourceUrl: url,
+            }));
+          } else if (files && Array.isArray(files)) {
+            filesToUpload = files;
+          } else {
+            throw new Error(
+              "Either sourceUrls array or files array is required",
+            );
+          }
+
+          if (filesToUpload.length === 0) {
+            throw new Error("At least one file is required for upload");
+          }
+
+          const results: any[] = [];
+          const errors: any[] = [];
+
+          // Upload each file
+          for (let i = 0; i < filesToUpload.length; i++) {
+            const file = filesToUpload[i];
+            try {
+              const { buffer, fileName: finalFileName } =
+                await prepareFileBuffer(
+                  file.sourceUrl,
+                  file.fileContent,
+                  file.fileName,
+                  `file-${i + 1}`,
+                );
+
+              // Add folder prefix if provided
+              const uploadFileName = folderPrefix
+                ? `${folderPrefix.endsWith("/") ? folderPrefix : `${folderPrefix}/`}${finalFileName}`
+                : finalFileName;
+
+              const data = await uploadSingleFile(
+                PINATA_JWT!,
+                buffer,
+                uploadFileName,
+                file.mimeType,
+                network,
+                group_id,
+                keyvalues,
+              );
+
+              results.push({
+                index: i,
+                fileName: uploadFileName,
+                success: true,
+                data,
+              });
+            } catch (error) {
+              errors.push({
+                index: i,
+                fileName: file.fileName || file.sourceUrl || `file-${i + 1}`,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
+          const summary = {
+            total: filesToUpload.length,
+            successful: results.length,
+            failed: errors.length,
+            results,
+            errors: errors.length > 0 ? errors : undefined,
+          };
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `✅ Batch upload complete!\n\nSuccessful: ${summary.successful}/${summary.total}\nFailed: ${summary.failed}/${summary.total}\n\n${JSON.stringify(summary, null, 2)}`,
               },
             ],
           };
