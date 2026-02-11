@@ -356,10 +356,13 @@ export function setupPinataTools(
               },
             },
           },
-          folderPrefix: {
-            type: "string",
+          fileNames: {
+            type: "array",
             description:
-              "Optional folder prefix to add to all filenames (e.g., 'my-folder/' will create 'my-folder/file1.jpg')",
+              "Optional array of custom filenames to use for the uploaded files. If provided, must match the number of files being uploaded.",
+            items: {
+              type: "string",
+            },
           },
           network: {
             type: "string",
@@ -596,7 +599,7 @@ export function setupPinataTools(
           const {
             sourceUrls,
             fileContents,
-            folderPrefix,
+            fileNames,
             network = "public",
             group_id,
             keyvalues,
@@ -625,6 +628,15 @@ export function setupPinataTools(
             throw new Error("At least one file is required for upload");
           }
 
+          // Validate fileNames array if provided
+          if (fileNames && Array.isArray(fileNames)) {
+            if (fileNames.length !== filesToUpload.length) {
+              throw new Error(
+                `fileNames array length (${fileNames.length}) must match the number of files to upload (${filesToUpload.length})`,
+              );
+            }
+          }
+
           // Prepare all files for upload
           const formData = new FormData();
           const fileDetails: Array<{ index: number; fileName: string }> = [];
@@ -640,9 +652,9 @@ export function setupPinataTools(
                   `file-${i + 1}`,
                 );
 
-              // Add folder prefix if provided
-              const uploadFileName = folderPrefix
-                ? `${folderPrefix.endsWith("/") ? folderPrefix : `${folderPrefix}/`}${finalFileName}`
+              // Use custom filename from fileNames array if provided, otherwise use the prepared filename
+              const uploadFileName = fileNames && fileNames[i]
+                ? fileNames[i]
                 : finalFileName;
 
               const detectedMimeType =

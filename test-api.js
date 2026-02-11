@@ -211,7 +211,11 @@ async function testAuthentication() {
               "https://picsum.photos/300/200",
               "https://picsum.photos/250/250",
             ],
-            folderPrefix: "test-batch",
+            fileNames: [
+              "image-1-portrait.jpg",
+              "image-2-landscape.jpg",
+              "image-3-square.jpg",
+            ],
             network: "public",
           },
         },
