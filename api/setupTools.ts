@@ -625,10 +625,10 @@ export function setupPinataTools(
             throw new Error("At least one file is required for upload");
           }
 
-          const results: any[] = [];
-          const errors: any[] = [];
+          // Prepare all files for upload
+          const formData = new FormData();
+          const fileDetails: Array<{ index: number; fileName: string }> = [];
 
-          // Upload each file
           for (let i = 0; i < filesToUpload.length; i++) {
             const file = filesToUpload[i];
             try {
@@ -645,44 +645,62 @@ export function setupPinataTools(
                 ? `${folderPrefix.endsWith("/") ? folderPrefix : `${folderPrefix}/`}${finalFileName}`
                 : finalFileName;
 
-              const data = await uploadSingleFile(
-                PINATA_JWT!,
-                buffer,
-                uploadFileName,
-                file.mimeType,
-                network,
-                group_id,
-                keyvalues,
-              );
+              const detectedMimeType =
+                file.mimeType || getMimeType(uploadFileName);
+              const blob = new Blob([new Uint8Array(buffer)], {
+                type: detectedMimeType,
+              });
 
-              results.push({
+              // Append each file to the same FormData
+              formData.append("file", blob, uploadFileName);
+
+              fileDetails.push({
                 index: i,
                 fileName: uploadFileName,
-                success: true,
-                data,
               });
             } catch (error) {
-              errors.push({
-                index: i,
-                fileName: file.fileName || file.sourceUrl || `file-${i + 1}`,
-                error: error instanceof Error ? error.message : String(error),
-              });
+              throw new Error(
+                `Failed to prepare file at index ${i}: ${error instanceof Error ? error.message : String(error)}`,
+              );
             }
           }
 
-          const summary = {
-            total: filesToUpload.length,
-            successful: results.length,
-            failed: errors.length,
-            results,
-            errors: errors.length > 0 ? errors : undefined,
-          };
+          // Add common metadata
+          formData.append("network", network);
+          if (group_id) {
+            formData.append("group_id", group_id);
+          }
+          if (keyvalues) {
+            formData.append("keyvalues", JSON.stringify(keyvalues));
+          }
+
+          // Upload all files in a single request
+          const response = await fetch("https://uploads.pinata.cloud/v3/files", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${PINATA_JWT}`,
+            },
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(
+              `Failed to upload files: ${response.status} ${response.statusText}\n${errorText}`,
+            );
+          }
+
+          const data = await response.json();
+
+          const text = `✅ Batch upload complete!\n\nUploaded ${filesToUpload.length} file(s)\n\n${JSON.stringify(data, null, 2)}`;
+
+          console.log(text);
 
           return {
             content: [
               {
                 type: "text",
-                text: `✅ Batch upload complete!\n\nSuccessful: ${summary.successful}/${summary.total}\nFailed: ${summary.failed}/${summary.total}\n\n${JSON.stringify(summary, null, 2)}`,
+                text,
               },
             ],
           };
