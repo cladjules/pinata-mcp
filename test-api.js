@@ -190,6 +190,46 @@ async function testAuthentication() {
     console.log(JSON.stringify(urlUploadData, null, 2));
     console.log();
 
+    // Step 6: Upload multiple files from URLs
+    console.log("6. Uploading multiple files from URLs...");
+    const multiUploadResponse = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": MCP_API_KEY || "",
+        "mcp-session-id": "test-session-123",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 6,
+        method: "tools/call",
+        params: {
+          name: "uploadFiles",
+          arguments: {
+            sourceUrls: [
+              "https://picsum.photos/200/300",
+              "https://picsum.photos/300/200",
+              "https://picsum.photos/250/250",
+            ],
+            folderPrefix: "test-batch",
+            network: "public",
+          },
+        },
+      }),
+    });
+
+    if (!multiUploadResponse.ok) {
+      const errorText = await multiUploadResponse.text();
+      throw new Error(
+        `Multi upload failed: ${multiUploadResponse.status} ${multiUploadResponse.statusText}\n${errorText}`,
+      );
+    }
+
+    const multiUploadData = await multiUploadResponse.json();
+    console.log("✓ Multiple file upload result:");
+    console.log(JSON.stringify(multiUploadData, null, 2));
+    console.log();
+
     console.log("✅ All tests passed!");
   } catch (error) {
     console.error("❌ Test failed:", error.message);
