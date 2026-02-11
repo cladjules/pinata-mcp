@@ -206,15 +206,19 @@ async function testAuthentication() {
         params: {
           name: "uploadFiles",
           arguments: {
-            sourceUrls: [
-              "https://picsum.photos/200/300",
-              "https://picsum.photos/300/200",
-              "https://picsum.photos/250/250",
-            ],
-            fileNames: [
-              "image-1-portrait.jpg",
-              "image-2-landscape.jpg",
-              "image-3-square.jpg",
+            fileContents: [
+              {
+                sourceUrl: "https://picsum.photos/200/300",
+                fileName: "image-1-portrait.jpg",
+              },
+              {
+                sourceUrl: "https://picsum.photos/300/200",
+                fileName: "image-2-landscape.jpg",
+              },
+              {
+                sourceUrl: "https://picsum.photos/250/250",
+                fileName: "image-3-square.jpg",
+              },
             ],
             network: "public",
           },
@@ -232,6 +236,76 @@ async function testAuthentication() {
     const multiUploadData = await multiUploadResponse.json();
     console.log("✓ Multiple file upload result:");
     console.log(JSON.stringify(multiUploadData, null, 2));
+    console.log();
+
+    // Step 7: Upload multiple files using fileContents array
+    console.log("7. Uploading multiple files using fileContents array...");
+    const file1 = {
+      name: "file-1.json",
+      content: { id: 1, message: "First file" },
+    };
+    const file2 = {
+      name: "file-2.json",
+      content: { id: 2, message: "Second file" },
+    };
+    const file3 = {
+      name: "file-3.json",
+      content: { id: 3, message: "Third file" },
+    };
+
+    const fileContentsUploadResponse = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": MCP_API_KEY || "",
+        "mcp-session-id": "test-session-123",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: {
+          name: "uploadFiles",
+          arguments: {
+            fileContents: [
+              {
+                fileContent: Buffer.from(
+                  JSON.stringify(file1.content, null, 2),
+                ).toString("base64"),
+                fileName: file1.name,
+                mimeType: "application/json",
+              },
+              {
+                fileContent: Buffer.from(
+                  JSON.stringify(file2.content, null, 2),
+                ).toString("base64"),
+                fileName: file2.name,
+                mimeType: "application/json",
+              },
+              {
+                fileContent: Buffer.from(
+                  JSON.stringify(file3.content, null, 2),
+                ).toString("base64"),
+                fileName: file3.name,
+                mimeType: "application/json",
+              },
+            ],
+            network: "public",
+          },
+        },
+      }),
+    });
+
+    if (!fileContentsUploadResponse.ok) {
+      const errorText = await fileContentsUploadResponse.text();
+      throw new Error(
+        `FileContents upload failed: ${fileContentsUploadResponse.status} ${fileContentsUploadResponse.statusText}\n${errorText}`,
+      );
+    }
+
+    const fileContentsUploadData = await fileContentsUploadResponse.json();
+    console.log("✓ FileContents upload result:");
+    console.log(JSON.stringify(fileContentsUploadData, null, 2));
     console.log();
 
     console.log("✅ All tests passed!");

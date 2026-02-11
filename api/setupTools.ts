@@ -318,18 +318,10 @@ export function setupPinataTools(
     {
       name: "uploadFiles",
       description:
-        "Upload multiple files at once to Pinata IPFS as part of the same folder/batch. Each file can have a sourceUrl or base64 content. Alternatively, provide a sourceUrls array for a quick batch upload from URLs.",
+        "Upload multiple files at once to Pinata IPFS. Each file can have a sourceUrl (to download from a URL) or base64 fileContent.",
       inputSchema: {
         type: "object" as const,
         properties: {
-          sourceUrls: {
-            type: "array",
-            description:
-              "Array of URLs to download and upload (shortcut for simple URL batch uploads)",
-            items: {
-              type: "string",
-            },
-          },
           fileContents: {
             type: "array",
             description: "Array of files to upload with detailed options",
@@ -356,14 +348,6 @@ export function setupPinataTools(
               },
             },
           },
-          fileNames: {
-            type: "array",
-            description:
-              "Optional array of custom filenames to use for the uploaded files. If provided, must match the number of files being uploaded.",
-            items: {
-              type: "string",
-            },
-          },
           network: {
             type: "string",
             enum: ["public", "private"],
@@ -379,6 +363,7 @@ export function setupPinataTools(
             description: "Metadata key-value pairs to apply to all files",
           },
         },
+        required: ["fileContents"],
       },
     },
   ];
@@ -597,52 +582,22 @@ export function setupPinataTools(
 
         case "uploadFiles": {
           const {
-            sourceUrls,
             fileContents,
-            fileNames,
             network = "public",
             group_id,
             keyvalues,
           } = args as any;
 
-          // Convert sourceUrls array to files array format if provided
-          let filesToUpload: any[];
-          if (sourceUrls && Array.isArray(sourceUrls)) {
-            if (fileContents && fileContents.length > 0) {
-              throw new Error(
-                "Cannot provide both sourceUrls and fileContents parameters. Use one or the other.",
-              );
-            }
-            filesToUpload = sourceUrls.map((url: string) => ({
-              sourceUrl: url,
-            }));
-          } else if (fileContents && Array.isArray(fileContents)) {
-            filesToUpload = fileContents;
-          } else {
-            throw new Error(
-              "Either sourceUrls array or fileContents array is required",
-            );
-          }
-
-          if (filesToUpload.length === 0) {
-            throw new Error("At least one file is required for upload");
-          }
-
-          // Validate fileNames array if provided
-          if (fileNames && Array.isArray(fileNames)) {
-            if (fileNames.length !== filesToUpload.length) {
-              throw new Error(
-                `fileNames array length (${fileNames.length}) must match the number of files to upload (${filesToUpload.length})`,
-              );
-            }
+          if (!fileContents || !Array.isArray(fileContents) || fileContents.length === 0) {
+            throw new Error("fileContents array is required and must not be empty");
           }
 
           // Prepare all files for upload
           const formData = new FormData();
           const fileDetails: Array<{ index: number; fileName: string }> = [];
 
-          for (let i = 0; i < filesToUpload.length; i++) {
-            const file = filesToUpload[i];
+          for (let i = 0; i < fileContents.length; i++) {
+            const file = fileContents[i];
             try {
               const { buffer, fileName: finalFileName } =
                 await prepareFileBuffer(
@@ -652,10 +607,7 @@ export function setupPinataTools(
                   `file-${i + 1}`,
                 );
 
-              // Use custom filename from fileNames array if provided, otherwise use the prepared filename
-              const uploadFileName = fileNames && fileNames[i]
-                ? fileNames[i]
-                : finalFileName;
+              const uploadFileName = finalFileName;
 
               const detectedMimeType =
                 file.mimeType || getMimeType(uploadFileName);
@@ -704,7 +656,7 @@ export function setupPinataTools(
 
           const data = await response.json();
 
-          const text = `✅ Batch upload complete!\n\nUploaded ${filesToUpload.length} file(s)\n\n${JSON.stringify(data, null, 2)}`;
+          const text = `✅ Batch upload complete!\n\nUploaded ${fileContents.length} file(s)\n\n${JSON.stringify(data, null, 2)}`;
 
           console.log(text);
 
