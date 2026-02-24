@@ -588,8 +588,19 @@ export function setupPinataTools(
             keyvalues,
           } = args as any;
 
-          if (!fileContents || !Array.isArray(fileContents) || fileContents.length === 0) {
-            throw new Error("fileContents array is required and must not be empty");
+          console.log(
+            "Received uploadFiles request with fileContents:",
+            fileContents,
+          );
+
+          if (
+            !fileContents ||
+            !Array.isArray(fileContents) ||
+            fileContents.length === 0
+          ) {
+            throw new Error(
+              "fileContents array is required and must not be empty",
+            );
           }
 
           // Prepare all files for upload
@@ -639,13 +650,16 @@ export function setupPinataTools(
           }
 
           // Upload all files in a single request
-          const response = await fetch("https://uploads.pinata.cloud/v3/files", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${PINATA_JWT}`,
+          const response = await fetch(
+            "https://uploads.pinata.cloud/v3/files",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${PINATA_JWT}`,
+              },
+              body: formData,
             },
-            body: formData,
-          });
+          );
 
           if (!response.ok) {
             const errorText = await response.text();
@@ -674,6 +688,7 @@ export function setupPinataTools(
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error) {
+      console.error(`Error executing tool ${name}:`, error);
       return errorResponse(error);
     }
   });
