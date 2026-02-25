@@ -105,7 +105,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       sessionId,
       method,
       requestId,
-      toolName: params?.tool,
+      toolName: params?.name,
     });
 
     // Get or create server for this session
